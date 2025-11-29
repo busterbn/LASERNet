@@ -19,6 +19,7 @@ from lasernet.utils import create_training_report, plot_losses, visualize_predic
 import numpy as np
 import random
 
+
 def set_seed(seed=42):
     random.seed(seed)
     np.random.seed(seed)
@@ -36,7 +37,6 @@ def train_tempnet(
     optimizer: optim.Optimizer,
     criterion: nn.Module,
     mae_fn: nn.Module,
-    mse_fn: nn.Module,
     device: torch.device,
     epochs: int,
     run_dir: Path,
@@ -44,8 +44,12 @@ def train_tempnet(
     note: str = ""
 ) -> Dict[str, list[float]]:
 
-    history: Dict[str, list[float]] = {"train_loss": [], "val_loss": [], "train_mae": [], "val_mae": [],     "train_mse": [],
-    "val_mse": [],}
+    history: Dict[str, list[float]] = {
+        "train_loss": [],
+        "val_loss": [],
+        "train_mae": [],
+        "val_mae": []
+    }
     best_val_loss = float('inf')
 
     for epoch in range(epochs):
@@ -54,27 +58,21 @@ def train_tempnet(
         train_loss = 0.0
         num_train_samples = 0
         train_mae = 0.0
-        train_mse  = 0.0
-
-
+        
         # Training loop with progress bar
         train_pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs} [Train]", leave=False)
         for batch in train_pbar:
-            context = batch["context"].float().to(device)  # [B, seq_len, 1, H, W]
-            target = batch["target"].float().to(device)    # [B, 1, H, W]
-            target_mask = batch["target_mask"].to(device)  # [B, H, W]
+            context = batch["context"].float().to(device) # [B, seq_len, 1, H, W]
+            target = batch["target"].float().to(device)   # [B, 1, H, W]
+            target_mask = batch["target_mask"].to(device) # [B, H, W]
 
             optimizer.zero_grad()
-            pred = model(context)  # [B, 1, H, W] - predicted next frame
-
+            pred = model(context) # [B, 1, H, W] - predicted next frame
+            
             # Only compute loss on valid pixels
-            mask_expanded = target_mask.unsqueeze(1)  # [B, 1, H, W]
-
+            mask_expanded = target_mask.unsqueeze(1) # [B, 1, H, W]
             loss = criterion(pred[mask_expanded], target[mask_expanded])
-            #loss = (0.5 * nn.functional.mse_loss(pred[mask_expanded], target[mask_expanded])+ 0.5 * nn.functional.l1_loss(pred[mask_expanded], target[mask_expanded]))
-            mse  = mse_fn(pred[mask_expanded], target[mask_expanded]).item()
             mae = mae_fn(pred[mask_expanded], target[mask_expanded]).item()
-
 
             loss.backward()
             optimizer.step()
@@ -82,7 +80,6 @@ def train_tempnet(
             batch_size = context.size(0)
             train_loss += loss.item() * batch_size
             train_mae += mae * batch_size
-            train_mse  += mse * batch_size
             num_train_samples += batch_size
 
             # Update progress bar with current loss
@@ -90,11 +87,8 @@ def train_tempnet(
 
         avg_train_loss = train_loss / max(1, num_train_samples)
         avg_train_mae = train_mae / max(1, num_train_samples)
-        avg_train_mse = train_mse / num_train_samples
-        history["train_mse"].append(avg_train_mse)
 
         history["train_mae"].append(avg_train_mae)
-
         history["train_loss"].append(avg_train_loss)
 
         # Validation
@@ -102,7 +96,6 @@ def train_tempnet(
         val_loss = 0.0
         num_val_samples = 0
         val_mae = 0.0
-        val_mse  = 0.0
 
         with torch.no_grad():
             val_pbar = tqdm(val_loader, desc=f"Epoch {epoch + 1}/{epochs} [Val]", leave=False)
@@ -112,37 +105,27 @@ def train_tempnet(
                 target_mask = batch["target_mask"].to(device)
 
                 pred = model(context)
-
                 mask_expanded = target_mask.unsqueeze(1)
+
                 loss = criterion(pred[mask_expanded], target[mask_expanded])
-                #loss = (0.5 * nn.functional.mse_loss(pred[mask_expanded], target[mask_expanded])+ 0.5 * nn.functional.l1_loss(pred[mask_expanded], target[mask_expanded]))
                 mae = mae_fn(pred[mask_expanded], target[mask_expanded]).item()
-                mse = mse_fn(pred[mask_expanded], target[mask_expanded]).item()
-
-
 
                 batch_size = context.size(0)
                 val_loss += loss.item() * batch_size
                 val_mae += mae * batch_size
-                val_mse += mse * batch_size
                 num_val_samples += batch_size
 
                 val_pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
         avg_val_loss = val_loss / max(1, num_val_samples)
-        avg_val_mse = val_mse / num_val_samples
         avg_val_mae = val_mae / max(1, num_val_samples)
+
         history["val_mae"].append(avg_val_mae)
-        history["val_mse"].append(avg_val_mse)
-
-
         history["val_loss"].append(avg_val_loss)
 
         print(f"Epoch {epoch + 1}/{epochs}: train loss={avg_train_loss:.4f}, val loss={avg_val_loss:.4f}")
-        print(f"                 train MAE={avg_train_mae:.2f}, val MAE={avg_val_mae:.2f}")
+        print(f" train MAE={avg_train_mae:.2f}, val MAE={avg_val_mae:.2f}")
 
-
-        # Save best model checkpoint
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             best_val_mae = avg_val_mae
@@ -156,49 +139,44 @@ def train_tempnet(
                 'train_mae': avg_train_mae,
                 'val_mae': avg_val_mae,
             }, run_dir / "checkpoints" / "best_model.pt")
-            print(f"  → Best model saved (val loss: {avg_val_loss:.4f}, val MAE: {avg_val_mae:.2f}), val MSE: {avg_val_mse:.4f})")
-            #print(f"  → Best model saved (val loss: {avg_val_loss:.4f})")
+
+            print(f" → Best model saved (val loss: {avg_val_loss:.4f}, val MAE: {avg_val_mae:.2f})")
 
             with open(run_dir / "best_summary.txt", "w") as f:
                 f.write(f"NOTE:\n{note}\n\n")
                 f.write(f"Best epoch: {epoch + 1}\n")
                 f.write(f"Val Loss (MSE): {avg_val_loss:.4f}\n")
-                f.write(f"Val MAE:        {avg_val_mae:.2f}\n")
-                f.write(f"Train Loss (MSE):{avg_train_loss:.4f}\n")
-                f.write(f"Train MAE:      {avg_train_mae:.2f}\n")
-                f.write(f"Val MSE: {avg_val_mse:.4f}\n")
-                f.write(f"Train MSE: {avg_train_mse:.4f}\n")
+                f.write(f"Val MAE: {avg_val_mae:.2f}\n")
+                f.write(f"Train Loss (MSE): {avg_train_loss:.4f}\n")
+                f.write(f"Train MAE: {avg_train_mae:.2f}\n")
 
-
-
-        # Visualize activations periodically
         if visualize_every > 0 and (epoch + 1) % visualize_every == 0:
-            print(f"  Generating visualizations for epoch {epoch + 1}...")
+            print(f" Generating visualizations for epoch {epoch + 1}...")
             model.eval()
             with torch.no_grad():
+
                 # Training visualization
                 sample_batch = next(iter(train_loader))
                 sample_context = sample_batch["context"].float().to(device)
                 sample_target = sample_batch["target"].float().to(device)
                 sample_pred = model(sample_context)
 
-                # Create training report (activations, distributions, stats)
+                # Create training report (activations, distributions, stats
                 create_training_report(
                     model=model,
                     sample_input=sample_context,
                     save_dir=str(run_dir / "visualizations"),
-                    epoch=epoch + 1
+                    epoch=epoch + 1,
                 )
-
+                
                 # Visualize training prediction
                 visualize_prediction(
                     context=sample_context.cpu(),
                     target=sample_target.cpu(),
                     prediction=sample_pred.cpu(),
                     save_path=str(run_dir / "visualizations" / f"train_prediction_epoch_{epoch + 1:03d}.png"),
-                    sample_idx=0
+                    sample_idx=0,
                 )
-
                 # Validation visualization
                 val_batch = next(iter(val_loader))
                 val_context = val_batch["context"].float().to(device)
@@ -210,7 +188,7 @@ def train_tempnet(
                     target=val_target.cpu(),
                     prediction=val_pred.cpu(),
                     save_path=str(run_dir / "visualizations" / f"val_prediction_epoch_{epoch + 1:03d}.png"),
-                    sample_idx=0
+                    sample_idx=0,
                 )
 
     return history
@@ -244,7 +222,6 @@ def evaluate_test(
 
             mask_expanded = target_mask.unsqueeze(1)
             loss = criterion(pred[mask_expanded], target[mask_expanded])
-            #loss = (0.5 * nn.functional.mse_loss(pred[mask_expanded], target[mask_expanded])+ 0.5 * nn.functional.l1_loss(pred[mask_expanded], target[mask_expanded]))
 
             batch_size = context.size(0)
             test_loss += loss.item() * batch_size
@@ -253,7 +230,6 @@ def evaluate_test(
             test_pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
     avg_test_loss = test_loss / max(1, num_test_samples)
-
     print(f"Test loss: {avg_test_loss:.4f}")
 
     # Generate test visualizations
@@ -269,15 +245,13 @@ def evaluate_test(
             target=test_target.cpu(),
             prediction=test_pred.cpu(),
             save_path=str(run_dir / "visualizations" / "test_prediction.png"),
-            sample_idx=0
+            sample_idx=0,
         )
 
-    test_results = {
+    return {
         "test_loss": avg_test_loss,
         "num_samples": num_test_samples,
     }
-
-    return test_results
 
 
 def get_device() -> torch.device:
@@ -310,7 +284,6 @@ def main() -> None:
     train_ratio = split_ratios[0] / sum(split_ratios)
     val_ratio = split_ratios[1] / sum(split_ratios)
     test_ratio = split_ratios[2] / sum(split_ratios)
-
     seq_len = args.seq_length
 
     # Create timestamped run directory
@@ -320,6 +293,7 @@ def main() -> None:
     (run_dir / "visualizations").mkdir(exist_ok=True)
     (run_dir / "checkpoints").mkdir(exist_ok=True)
 
+    # Save training configuration
     print("=" * 70)
     print("LASERNet Training")
     print("=" * 70)
@@ -333,9 +307,9 @@ def main() -> None:
     print(f"  Visualize:     Every {args.visualize_every} epochs" if args.visualize_every > 0 else "  Visualize:     Disabled")
     print()
 
-    # Create model, change parameters for experimenting, added another lstm layer
-    model = CNN_LSTM(lstm_layers=2).to(device)
 
+    model = CNN_LSTM(lstm_layers=2).to(device)
+    
     # Print model info
     param_count = model.count_parameters()
     print(f"Model: Simple CNN-LSTM")
@@ -396,26 +370,9 @@ def main() -> None:
     print()
 
     # Create data loaders
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=args.batch_size,
-        shuffle=False,  # No shuffling for temporal sequences
-        num_workers=0,
-    )
-
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=0,
-    )
-
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=0,
-    )
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0,)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0,)
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0,)
 
     # Save configuration
     config = {
@@ -461,24 +418,10 @@ def main() -> None:
     print(f"Saved configuration to {run_dir / 'config.json'}")
     print()
 
-    # Setup training components
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-
-    # ---- TRAINING LOSS (you change this) ----
-    criterion = nn.MSELoss()          # or nn.MSELoss(), or SmoothL1
-    
-    #criterion = nn.L1Loss()
-    #mse = nn.MSELoss()
-    #l1  = nn.L1Loss()
-    #criterion = nn.SmoothL1Loss()
-    #mse = nn.MSELoss()
-    #l1  = nn.L1Loss()
-
-    # ---- METRICS (NEVER change these) ----
-    mse_fn = nn.MSELoss()
+    criterion = nn.MSELoss()
     mae_fn = nn.L1Loss()
 
-    # Train
     history = train_tempnet(
         model=model,
         train_loader=train_loader,
@@ -486,14 +429,12 @@ def main() -> None:
         optimizer=optimizer,
         criterion=criterion,
         mae_fn=mae_fn,
-        mse_fn=mse_fn,
         device=device,
         epochs=args.epochs,
         run_dir=run_dir,
         visualize_every=args.visualize_every,
         note=args.note,
     )
-
     print()
     print("=" * 70)
     print("Training complete!")
@@ -541,4 +482,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
