@@ -1,6 +1,3 @@
-.DS_Store
-.venv
-data
 figures/
 __pycache__/
 logs/
@@ -9,3 +6,7 @@ data/
 CLAUDE.md
 runs/
 *.pt
+.venv/
+datasets_checkpoint.pkl
+MICROnet_output/
+.ipynb_checkpoints/
