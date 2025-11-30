@@ -389,17 +389,28 @@ def load_model_and_predict(
     # Detect model type
     is_predrnn = any('pred_rnn' in key for key in state_dict.keys())
 
+    # Try to detect if model uses skip connections from state dict
+    use_skip_connections = False
+    if 'dec3.0.weight' in state_dict:
+        # Check input channels of decoder blocks to infer skip connections
+        # Without skip: dec3 input = 128 (fusion_channels)
+        # With skip: dec3 input = 192 (fusion_channels + 64)
+        dec3_in_channels = state_dict['dec3.0.weight'].shape[1]
+        use_skip_connections = (dec3_in_channels == 192)
+
     if is_predrnn:
         model = MicrostructurePredRNN(
             input_channels=10,
             future_channels=1,
-            output_channels=9
+            output_channels=9,
+            use_skip_connections=use_skip_connections
         )
     else:
         model = MicrostructureCNN_LSTM(
             input_channels=10,
             future_channels=1,
-            output_channels=9
+            output_channels=9,
+            use_skip_connections=use_skip_connections
         )
 
     model.load_state_dict(state_dict)
