@@ -10,6 +10,7 @@ init:
 	@command -v uv >/dev/null 2>&1 || (echo "uv not found, installing..." && curl -LsSf https://astral.sh/uv/install.sh | sh)
 	uv sync
 	uv run python -m ipykernel install --user --name=.venv
+	uv run nbstripout --install
 
 # Default target: show help
 help:

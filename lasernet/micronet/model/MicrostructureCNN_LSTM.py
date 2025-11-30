@@ -36,6 +36,7 @@ class MicrostructureCNN_LSTM(nn.Module):
         lstm_layers: int = 1,
         temp_min: float = 300.0,
         temp_max: float = 2000.0,
+        use_skip_connections: bool = False,  # Enable U-Net style skip connections
     ):
         super().__init__()
 
@@ -44,6 +45,7 @@ class MicrostructureCNN_LSTM(nn.Module):
         self.output_channels = output_channels
         self.hidden_channels = hidden_channels
         self.lstm_hidden = lstm_hidden
+        self.use_skip_connections = use_skip_connections
 
         # Temperature normalization parameters (registered as buffers)
         self.register_buffer('temp_min', torch.tensor(temp_min))
@@ -78,13 +80,17 @@ class MicrostructureCNN_LSTM(nn.Module):
         fusion_channels = lstm_hidden + hidden_channels[2]
 
         # Decoder: 128 → 64 → 32 → 16 → 9
+        # Skip connections add features from encoder if enabled
         self.up3 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
-        self.dec3 = self._conv_block(fusion_channels, hidden_channels[2], name="dec3")
+        dec3_in = fusion_channels + (hidden_channels[1] * 2 if use_skip_connections else 0)
+        self.dec3 = self._conv_block(dec3_in, hidden_channels[2], name="dec3")
 
         self.up2 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
-        self.dec2 = self._conv_block(hidden_channels[2], hidden_channels[1], name="dec2")
+        dec2_in = hidden_channels[2] + (hidden_channels[0] * 2 if use_skip_connections else 0)
+        self.dec2 = self._conv_block(dec2_in, hidden_channels[1], name="dec2")
 
         self.up1 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
+        # No skip connection at the final level (no encoder at this resolution in latent space)
         self.dec1 = self._conv_block(hidden_channels[1], hidden_channels[0], name="dec1")
 
         # Final output layer: 16 → 9 (microstructure channels)
@@ -139,6 +145,9 @@ class MicrostructureCNN_LSTM(nn.Module):
 
         # ==================== ENCODE CONTEXT SEQUENCE ====================
         encoded_frames = []
+        # Store encoder features for skip connections (use last frame's encoder features)
+        ctx_e1, ctx_e2 = None, None
+
         for t in range(seq_len):
             x = context_normalized[:, t]  # [B, 10, H, W]
 
@@ -153,6 +162,10 @@ class MicrostructureCNN_LSTM(nn.Module):
             p3 = self.pool(e3)            # [B, 64, H/8, W/8]
 
             encoded_frames.append(p3)
+
+            # Save last frame's encoder features for skip connections
+            if t == seq_len - 1:
+                ctx_e1, ctx_e2 = e1, e2
 
         # Stack encoded frames: [B, seq_len, 64, H/8, W/8]
         encoded_seq = torch.stack(encoded_frames, dim=1)
@@ -176,9 +189,27 @@ class MicrostructureCNN_LSTM(nn.Module):
 
         # ==================== DECODER ====================
         d3 = self.up3(fused)       # [B, 128, H/4, W/4]
+
+        # Add skip connections from both encoders if enabled
+        if self.use_skip_connections:
+            # Resize skip connections to match decoder spatial dimensions
+            skip_ctx_e2 = nn.functional.interpolate(ctx_e2, size=d3.shape[2:], mode='bilinear', align_corners=False)
+            skip_f2 = nn.functional.interpolate(f2, size=d3.shape[2:], mode='bilinear', align_corners=False)
+            skip_e2 = torch.cat([skip_ctx_e2, skip_f2], dim=1)  # [B, 64, H/4, W/4]
+            d3 = torch.cat([d3, skip_e2], dim=1)  # [B, 192, H/4, W/4]
+
         d3 = self.dec3(d3)         # [B, 64, H/4, W/4]
 
         d2 = self.up2(d3)          # [B, 64, H/2, W/2]
+
+        # Add skip connections from both encoders if enabled
+        if self.use_skip_connections:
+            # Resize skip connections to match decoder spatial dimensions
+            skip_ctx_e1 = nn.functional.interpolate(ctx_e1, size=d2.shape[2:], mode='bilinear', align_corners=False)
+            skip_f1 = nn.functional.interpolate(f1, size=d2.shape[2:], mode='bilinear', align_corners=False)
+            skip_e1 = torch.cat([skip_ctx_e1, skip_f1], dim=1)  # [B, 32, H/2, W/2]
+            d2 = torch.cat([d2, skip_e1], dim=1)  # [B, 96, H/2, W/2]
+
         d2 = self.dec2(d2)         # [B, 32, H/2, W/2]
 
         d1 = self.up1(d2)          # [B, 32, H, W]
