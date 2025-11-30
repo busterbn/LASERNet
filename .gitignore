@@ -1,2 +1,12 @@
-__pycache__/
 figures/
+__pycache__/
+logs/
+data/
+.DS_Store
+CLAUDE.md
+runs/
+*.pt
+.venv/
+datasets_checkpoint.pkl
+MICROnet_output/
+.ipynb_checkpoints/

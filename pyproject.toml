@@ -5,11 +5,14 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12, <3.13"
 dependencies = [
+    "ipykernel>=7.1.0",
     "matplotlib>=3.10.7",
+    "nbconvert>=7.16.6",
     "numpy>=2.3.4",
     "pandas>=2.3.3",
     "scipy>=1.15.1",
     "tensorboard>=2.20.0",
     "torch>=2.9.0",
     "torchvision>=0.24.0",
+    "tqdm>=4.66.0",
 ]
