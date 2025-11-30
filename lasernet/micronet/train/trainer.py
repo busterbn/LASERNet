@@ -225,8 +225,18 @@ def train_microstructure(
 
             context = torch.cat([context_temp, context_micro], dim=2)
 
+            # Check for NaN/Inf in inputs
+            if not (torch.isfinite(context).all() and torch.isfinite(future_temp).all() and torch.isfinite(target_micro).all()):
+                print(f"Warning: Non-finite values in input data, skipping batch")
+                continue
+
             optimizer.zero_grad()
             pred_micro = model(context, future_temp)
+            
+            # Check for NaN/Inf in predictions
+            if not torch.isfinite(pred_micro).all():
+                print(f"Warning: Non-finite predictions, skipping batch")
+                continue
 
             if isinstance(criterion, (SolidificationWeightedMSELoss, CombinedLoss)):
                 result = criterion(pred_micro, target_micro, future_temp, target_mask)
@@ -243,7 +253,16 @@ def train_microstructure(
                 mask_expanded = target_mask.unsqueeze(1).expand_as(target_micro)
                 loss = criterion(pred_micro[mask_expanded], target_micro[mask_expanded])
 
+            # Check for NaN/Inf in loss before backward
+            if not torch.isfinite(loss):
+                print(f"Warning: Non-finite loss detected: {loss.item()}, skipping batch")
+                continue
+
             loss.backward()
+            
+            # Clip gradients to prevent exploding gradients
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
             optimizer.step()
 
             batch_size = context.size(0)
