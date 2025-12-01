@@ -10,6 +10,7 @@ init:
 	@command -v uv >/dev/null 2>&1 || (echo "uv not found, installing..." && curl -LsSf https://astral.sh/uv/install.sh | sh)
 	uv sync
 	uv run python -m ipykernel install --user --name=.venv
+	uv run nbstripout --install
 
 # Default target: show help
 help:
@@ -22,6 +23,7 @@ help:
 	@echo "Batch Jobs:"
 	@echo "  make MICROnet_notebook          - Execute MICROnet.ipynb locally"
 	@echo "  make submit_MICROnet_notebook   - Submit MICROnet notebook to job queue"
+	@echo "  make clone_MICROnet_output      - Fetch pretrained models to avoid training them again"
 	@echo ""
 	@echo "Cleanup:"
 	@echo "  make clean          - Remove logs, runs, and cache files"
@@ -35,6 +37,9 @@ submit_MICROnet_notebook:
 	@echo "Submitting MICROnet_notebook to job queue"
 	bsub < batch/scripts/train_MICROnet_notebook.sh
 
+clone_MICROnet_output:
+	cp -r /dtu/blackhole/06/168550/MICRONET_output/ ./MICROnet_output
+
 # ==================== CLEANUP ====================
 
 clean:
@@ -43,6 +48,7 @@ clean:
 	rm -rf __pycache__/
 	rm -rf lasernet/__pycache__/
 	rm -rf lasernet/**/__pycache__/
+	rm -rf MICROnet_output
 	find . -name "*.pyc" -delete
 	find . -name ".DS_Store" -delete
 	@echo "Cleanup complete!"
