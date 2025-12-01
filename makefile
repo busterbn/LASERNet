@@ -36,6 +36,9 @@ submit_MICROnet_notebook:
 	@echo "Submitting MICROnet_notebook to job queue"
 	bsub < batch/scripts/train_MICROnet_notebook.sh
 
+clone_MICROnet_output:
+	cp -r /dtu/blackhole/06/168550/MICRONET_output/ ./MICROnet_output
+
 # ==================== CLEANUP ====================
 
 clean:
@@ -44,6 +47,7 @@ clean:
 	rm -rf __pycache__/
 	rm -rf lasernet/__pycache__/
 	rm -rf lasernet/**/__pycache__/
+	rm -rf MICROnet_output
 	find . -name "*.pyc" -delete
 	find . -name ".DS_Store" -delete
 	@echo "Cleanup complete!"
