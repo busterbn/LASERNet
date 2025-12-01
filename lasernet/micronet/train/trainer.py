@@ -389,17 +389,28 @@ def load_model_and_predict(
     # Detect model type
     is_predrnn = any('pred_rnn' in key for key in state_dict.keys())
 
+    # Try to detect if model uses skip connections from state dict
+    use_skip_connections = False
+    if 'dec3.0.weight' in state_dict:
+        # Check input channels of decoder blocks to infer skip connections
+        # Without skip: dec3 input = 128 (fusion_channels)
+        # With skip: dec3 input = 192 (fusion_channels + 64)
+        dec3_in_channels = state_dict['dec3.0.weight'].shape[1]
+        use_skip_connections = (dec3_in_channels == 192)
+
     if is_predrnn:
         model = MicrostructurePredRNN(
             input_channels=10,
             future_channels=1,
-            output_channels=9
+            output_channels=9,
+            use_skip_connections=use_skip_connections
         )
     else:
         model = MicrostructureCNN_LSTM(
             input_channels=10,
             future_channels=1,
-            output_channels=9
+            output_channels=9,
+            use_skip_connections=use_skip_connections
         )
 
     model.load_state_dict(state_dict)
@@ -492,6 +503,17 @@ def save_solidification_mask_visualization(
         timestep: Timestep index for display
         slice_coord: Slice coordinate for display
     """
+    # Calculate loss
+    with torch.no_grad():
+        pred_batch = pred_micro.unsqueeze(0)
+        target_batch = target_micro.unsqueeze(0)
+        mask_batch = mask.unsqueeze(0)
+        result = loss_fn(pred_batch, target_batch, future_temp.unsqueeze(0), mask_batch)
+        if isinstance(result, tuple):
+            loss = result[0].item()
+        else:
+            loss = result.item()
+
     # Prepare data
     temp_np = future_temp[0].cpu().numpy()
     mask_np = mask.cpu().numpy()
@@ -503,10 +525,8 @@ def save_solidification_mask_visualization(
         mask.unsqueeze(0)          # Add batch dimension [1, H, W]
     ).squeeze(0).cpu().numpy()     # Remove batch dimension [H, W]
 
-    # Denormalize temperature for display
-    temp_min = 300.0
-    temp_max = 2000.0
-    temp_denorm = temp_np * (temp_max - temp_min) + temp_min
+    # Temperature is already denormalized from load_model_and_predict
+    temp_denorm = temp_np
 
     # Prepare microstructure RGB
     target_rgb = np.transpose(target_micro[:3].cpu().numpy(), (1, 2, 0))
@@ -525,7 +545,8 @@ def save_solidification_mask_visualization(
         f'{title}\n'
         f'Timestep: {timestep} | Slice: {slice_coord:.2f} | '
         f'T_solidus={loss_fn.solidification_loss.T_solidus:.0f}K, '
-        f'T_liquidus={loss_fn.solidification_loss.T_liquidus:.0f}K',
+        f'T_liquidus={loss_fn.solidification_loss.T_liquidus:.0f}K | '
+        f'Loss: {loss:.6f}',
         fontsize=16,
         fontweight='bold'
     )
@@ -623,6 +644,8 @@ def save_prediction_visualization(
     mask: torch.Tensor,
     save_path: str,
     title: str = "Prediction",
+    future_temp: Optional[torch.Tensor] = None,
+    loss_fn: Optional[nn.Module] = None,
 ) -> None:
     """
     Save a visualization of prediction vs ground truth.
@@ -633,6 +656,8 @@ def save_prediction_visualization(
         mask: Valid pixel mask [H, W]
         save_path: Path to save image
         title: Title for the figure
+        future_temp: Future temperature frame [1, H, W] (optional, for loss calculation)
+        loss_fn: Loss function (optional, for loss calculation)
     """
     mask_np = mask.cpu().numpy()
     mask_3d = np.stack([mask_np] * 3, axis=-1)
@@ -648,6 +673,48 @@ def save_prediction_visualization(
     # Difference
     diff = ((target_micro - pred_micro) ** 2).mean(dim=0).cpu().numpy()
     diff_masked = np.ma.masked_where(~mask_np, diff)
+
+    # Calculate loss
+    loss = None
+    solidification_loss = None
+
+    if future_temp is not None and loss_fn is not None:
+        with torch.no_grad():
+            pred_batch = pred_micro.unsqueeze(0)
+            target_batch = target_micro.unsqueeze(0)
+            mask_batch = mask.unsqueeze(0)
+
+            if isinstance(loss_fn, (SolidificationWeightedMSELoss, CombinedLoss)):
+                result = loss_fn(pred_batch, target_batch, future_temp.unsqueeze(0), mask_batch)
+                if isinstance(result, tuple):
+                    loss = result[0].item()
+                else:
+                    loss = result.item()
+            else:
+                mask_expanded = mask_batch.unsqueeze(1).expand_as(target_batch)
+                loss = loss_fn(pred_batch[mask_expanded], target_batch[mask_expanded]).item()
+
+    # Always calculate solidification region loss (T1560-T1620) for comparison
+    if future_temp is not None:
+        with torch.no_grad():
+            # Temperature is already denormalized from load_model_and_predict
+            temp_denorm = future_temp[0]
+
+            # Create solidification mask for T1560-T1620
+            T_solidus = 1560.0
+            T_liquidus = 1620.0
+            solidification_mask = ((temp_denorm >= T_solidus) & (temp_denorm <= T_liquidus) & mask).cpu()
+
+            # Calculate MSE in solidification region
+            if solidification_mask.any():
+                solidification_mask_expanded = solidification_mask.unsqueeze(0).expand_as(pred_micro)
+                pred_solid = pred_micro[solidification_mask_expanded]
+                target_solid = target_micro[solidification_mask_expanded]
+                solidification_loss = ((pred_solid - target_solid) ** 2).mean().item()
+
+    # Fallback to overall MSE if no loss calculated
+    if loss is None:
+        loss = ((target_micro - pred_micro) ** 2).mean().item()
 
     # Create figure
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
@@ -665,8 +732,12 @@ def save_prediction_visualization(
     axes[2].axis('off')
     plt.colorbar(im, ax=axes[2], fraction=0.046, pad=0.04)
 
-    mse = ((target_micro - pred_micro) ** 2).mean().item()
-    fig.suptitle(f'{title}\nMSE: {mse:.6f}', fontsize=14, fontweight='bold')
+    # Create title with both total and solidification losses
+    title_text = f'{title}\nTotal Loss: {loss:.6f}'
+    if solidification_loss is not None:
+        title_text += f' | Solidification Loss (T1560-T1620): {solidification_loss:.6f}'
+
+    fig.suptitle(title_text, fontsize=14, fontweight='bold')
 
     plt.tight_layout()
     Path(save_path).parent.mkdir(parents=True, exist_ok=True)

@@ -83,30 +83,16 @@ class SolidificationWeightedMSELoss(nn.Module):
         # Normalize temperature to solidification range [0, 1]
         # 0 = solidus (fully solid), 1 = liquidus (fully liquid)
         temp_normalized = (temp - self.T_solidus) / (self.T_liquidus - self.T_solidus)
-        temp_normalized = torch.clamp(temp_normalized, 0.0, 1.0)
 
-        # Compute weights based on distance from mid-point (0.5)
-        # Mid-point = where solidification is most active
-        if self.weight_type == "gaussian":
-            # Gaussian centered at 0.5 (peak weight at mid-solidification)
-            distance = (temp_normalized - 0.5) ** 2
-            weight = torch.exp(-distance / self.weight_scale)
+        # Create binary mask for solidification range
+        in_solidification_range = (temp_normalized >= 0.0) & (temp_normalized <= 1.0)
 
-        elif self.weight_type == "linear":
-            # Linear decay from center
-            distance = torch.abs(temp_normalized - 0.5)
-            weight = 1.0 - torch.clamp(distance / 0.5, 0.0, 1.0)
-
-        elif self.weight_type == "exponential":
-            # Exponential decay from center
-            distance = torch.abs(temp_normalized - 0.5)
-            weight = torch.exp(-distance / self.weight_scale)
-
-        else:
-            raise ValueError(f"Invalid weight_type: {self.weight_type}")
-
-        # Scale to [base_weight, 1.0] range
-        weight = self.base_weight + (1.0 - self.base_weight) * weight
+        # Uniform weight across full solidification range
+        weight = torch.where(
+            in_solidification_range,
+            torch.ones_like(temp_normalized),  # weight = 1.0 in solidification range
+            torch.ones_like(temp_normalized) * self.base_weight  # base_weight outside
+        )
 
         # Apply valid region mask
         weight = weight * mask
