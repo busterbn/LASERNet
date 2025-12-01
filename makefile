@@ -23,6 +23,7 @@ help:
 	@echo "Batch Jobs:"
 	@echo "  make MICROnet_notebook          - Execute MICROnet.ipynb locally"
 	@echo "  make submit_MICROnet_notebook   - Submit MICROnet notebook to job queue"
+	@echo "  make clone_MICROnet_output      - Fetch pretrained models to avoid training them again"
 	@echo ""
 	@echo "Cleanup:"
 	@echo "  make clean          - Remove logs, runs, and cache files"
