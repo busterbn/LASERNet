@@ -131,7 +131,7 @@ The [MICROnet.ipynb](MICROnet.ipynb) notebook trains and compares **16 different
 10. seq=3, MSE loss
 11. seq=4, MSE loss
 
-### Combined Loss (seq=3):
+### Combined Loss (seq=2):
 12. T_solidus=1560, T_liquidus=1620, weights=70/30
 13. T_solidus=1530, T_liquidus=1650, weights=70/30
 14. T_solidus=1500, T_liquidus=1680, weights=70/30
