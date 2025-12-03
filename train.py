@@ -18,6 +18,7 @@ from lasernet.micronet.dataset.fast_loading import FastSliceSequenceDataset
 from lasernet.micronet.dataset.preprocess_data import save_preprocessed_data
 from lasernet.model.CNN_LSTM import CNN_LSTM
 from lasernet.utils import create_training_report, plot_losses, visualize_prediction
+from lasernet.dataset.calculate_temp import calculate_temp_stats_fast, get_default_temp_range
 
 import numpy as np
 import random
@@ -52,10 +53,12 @@ def train_tempnet(
     history: Dict[str, list[float]] = {
         "train_loss": [],
         "val_loss": [],
+        "val_loss_smoothed": [],  # Exponential moving average
         "train_mae": [],
         "val_mae": []
     }
     best_val_loss = float('inf')
+    smoothed_val_loss = None  # Initialize EMA tracker
 
     for epoch in range(epochs):
         # Training
@@ -73,13 +76,26 @@ def train_tempnet(
 
             optimizer.zero_grad()
             pred = model(context) # [B, 1, H, W] - predicted next frame
-            
+
             # Only compute loss on valid pixels
             mask_expanded = target_mask.unsqueeze(1) # [B, 1, H, W]
             if epoch == 0:
                 print("Train mask pixels:", mask_expanded.sum().item())
 
-            loss = criterion(pred[mask_expanded], target[mask_expanded])
+            # Main reconstruction loss
+            reconstruction_loss = criterion(pred[mask_expanded], target[mask_expanded])
+
+            # Temporal smoothness regularization: penalize large frame-to-frame changes
+            # Physics-based: temperature should evolve smoothly
+            last_frame = context[:, -1, :, :, :]  # [B, 1, H, W] - last context frame
+            pred_change = pred - last_frame
+            target_change = target - last_frame
+            temporal_loss = criterion(pred_change[mask_expanded], target_change[mask_expanded])
+
+            # Combined loss with temporal smoothness weight
+            alpha_temporal = 0.1  # Weight for temporal smoothness term
+            loss = reconstruction_loss + alpha_temporal * temporal_loss
+
             mae = mae_fn(pred[mask_expanded], target[mask_expanded]).item()
 
             loss.backward()
@@ -133,17 +149,28 @@ def train_tempnet(
         avg_val_loss = val_loss / max(1, num_val_samples)
         avg_val_mae = val_mae / max(1, num_val_samples)
 
+        # Calculate exponential moving average (EMA) for validation loss
+        # This smooths out high-variance validation metrics from small validation sets
+        ema_alpha = 0.3  # Weight for current value (0.3 = smooth, 0.5 = balanced, 0.7 = responsive)
+        if smoothed_val_loss is None:
+            smoothed_val_loss = avg_val_loss  # Initialize with first value
+        else:
+            smoothed_val_loss = ema_alpha * avg_val_loss + (1 - ema_alpha) * smoothed_val_loss
+
         history["val_mae"].append(avg_val_mae)
         history["val_loss"].append(avg_val_loss)
+        history["val_loss_smoothed"].append(smoothed_val_loss)
 
-        print(f"Epoch {epoch + 1}/{epochs}: train loss={avg_train_loss:.4f}, val loss={avg_val_loss:.4f}")
+        print(f"Epoch {epoch + 1}/{epochs}: train loss={avg_train_loss:.4f}, val loss={avg_val_loss:.4f} (smoothed: {smoothed_val_loss:.4f})")
         print(f" train MAE={avg_train_mae:.2f}, val MAE={avg_val_mae:.2f}")
 
-        scheduler.step(avg_val_loss) #added
+        # Use smoothed validation loss for scheduler (more stable learning rate adjustments)
+        scheduler.step(smoothed_val_loss)
 
 
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
+        # Save best model based on smoothed validation loss (more robust to outliers)
+        if smoothed_val_loss < best_val_loss:
+            best_val_loss = smoothed_val_loss
             best_val_mae = avg_val_mae
 
             torch.save({
@@ -152,16 +179,18 @@ def train_tempnet(
                 'optimizer_state_dict': optimizer.state_dict(),
                 'train_loss': avg_train_loss,
                 'val_loss': avg_val_loss,
+                'val_loss_smoothed': smoothed_val_loss,
                 'train_mae': avg_train_mae,
                 'val_mae': avg_val_mae,
             }, run_dir / "checkpoints" / "best_model.pt")
 
-            print(f" → Best model saved (val loss: {avg_val_loss:.4f}, val MAE: {avg_val_mae:.2f})")
+            print(f" → Best model saved (smoothed val loss: {smoothed_val_loss:.4f}, val MAE: {avg_val_mae:.2f})")
 
             with open(run_dir / "best_summary.txt", "w") as f:
                 f.write(f"NOTE:\n{note}\n\n")
                 f.write(f"Best epoch: {epoch + 1}\n")
-                f.write(f"Val Loss (MSE): {avg_val_loss:.4f}\n")
+                f.write(f"Val Loss (raw): {avg_val_loss:.4f}\n")
+                f.write(f"Val Loss (smoothed): {smoothed_val_loss:.4f}\n")
                 f.write(f"Val MAE: {avg_val_mae:.2f}\n")
                 f.write(f"Train Loss (MSE): {avg_train_loss:.4f}\n")
                 f.write(f"Train MAE: {avg_train_mae:.2f}\n")
@@ -285,10 +314,10 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Train the LASERNet CNN-LSTM model")
     parser.add_argument("--epochs", type=int, default=100, help="Number of training epochs")
-    parser.add_argument("--batch-size", type=int, default=16, help="Batch size for training/validation")
+    parser.add_argument("--batch-size", type=int, default=32, help="Batch size for training/validation")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate for Adam optimizer")
     parser.add_argument("--visualize-every", type=int, default=25, help="Visualize activations every N epochs (0 to disable)")
-    parser.add_argument("--split-ratio", type=str, default="10,6,8", help="Train/Val/Test split ratio")
+    parser.add_argument("--split-ratio", type=str, default="10,9,5", help="Train/Val/Test split ratio")
     parser.add_argument("--seq-length", type=int, default=3, help="Number of context frames in input sequence")
     parser.add_argument("--note", type=str, default="", help="Short note describing this run")
     args = parser.parse_args()
@@ -322,8 +351,32 @@ def main() -> None:
     print(f"  Visualize:     Every {args.visualize_every} epochs" if args.visualize_every > 0 else "  Visualize:     Disabled")
     print()
 
+    # Calculate temperature statistics from training data
+    print("=" * 70)
+    print("Calculating temperature normalization statistics...")
+    print("=" * 70)
+    try:
+        # Try calculating from a subset of training data (faster)
+        temp_min, temp_max = calculate_temp_stats_fast(
+            plane="xz",
+            split="train",
+            sequence_length=seq_len,
+            target_offset=1,
+            train_ratio=train_ratio,
+            val_ratio=val_ratio,
+            test_ratio=test_ratio,
+            max_samples=100,  # Sample 100 sequences for quick estimation
+        )
+    except Exception as e:
+        print(f"⚠ Could not calculate temp stats: {e}")
+        print("  Using default temperature range instead...")
+        temp_min, temp_max = get_default_temp_range()
 
-    model = CNN_LSTM(lstm_layers=2).to(device)
+    print(f"Temperature normalization range: [{temp_min:.2f}, {temp_max:.2f}] K")
+    print("=" * 70)
+    print()
+
+    model = CNN_LSTM(lstm_layers=2, temp_range=(temp_min, temp_max)).to(device)
     
     # Print model info
     param_count = model.count_parameters()
@@ -414,8 +467,8 @@ def main() -> None:
             "input_channels": 1,
             "hidden_channels": [16, 32, 64],
             "lstm_hidden": 64,
-            "temp_min": 300.0,
-            "temp_max": 4652.0498046875,
+            "temp_min": float(model.temp_min.item()),
+            "temp_max": float(model.temp_max.item()),
         },
         "training": {
             "epochs": args.epochs,
@@ -460,7 +513,9 @@ def main() -> None:
     cooldown=5,
     min_lr=1e-5,
 )
-    criterion = nn.MSELoss()
+    # Use Huber loss (Smooth L1) - more robust to outliers near melt pool
+    # Combines MSE for small errors + MAE for large errors
+    criterion = nn.SmoothL1Loss()
 
     mae_fn = nn.L1Loss()
 

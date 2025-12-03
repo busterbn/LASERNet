@@ -2,7 +2,7 @@
 
 import torch
 import torch.nn as nn
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 
 class ConvLSTMCell(nn.Module):
@@ -127,8 +127,7 @@ class CNN_LSTM(nn.Module):
         hidden_channels: List[int] = [16, 32, 64],
         lstm_hidden: int = 64,
         lstm_layers: int = 1,
-        temp_min: float = 300.0,  # Room temperature baseline
-        temp_max: float = 4652.0498046875,  # Max expected temperature. calculated from data 
+        temp_range: Optional[Tuple[float, float]] = None,  # (temp_min, temp_max), if None uses defaults
     ):
         super().__init__()
 
@@ -137,6 +136,13 @@ class CNN_LSTM(nn.Module):
         self.lstm_hidden = lstm_hidden
 
         # Temperature normalization (registered as buffers, not learnable parameters)
+        # Use provided range or get defaults from calculate_temp module
+        if temp_range is None:
+            from ..dataset.calculate_temp import get_default_temp_range
+            temp_min, temp_max = get_default_temp_range()
+        else:
+            temp_min, temp_max = temp_range
+
         self.register_buffer('temp_min', torch.tensor(temp_min))
         self.register_buffer('temp_max', torch.tensor(temp_max))
 
@@ -159,9 +165,9 @@ class CNN_LSTM(nn.Module):
 
         #added skip connections!
         # Decoder: 3 upsampling blocks
-        # d3 receives: up(lstm_out) + e3  → channels: 64 + 64 = 128
+        # d3 receives: up(d4) + e3  → channels: hidden3 + hidden3
         self.up3 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
-        self.dec3 = self._conv_block(lstm_hidden + hidden_channels[2], hidden_channels[1], name="dec3")
+        self.dec3 = self._conv_block(2 * hidden_channels[2], hidden_channels[1], name="dec3")
 
         # d2 receives: up(d3) + e2 → channels: 32 + 32 = 64
         self.up2 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False)
@@ -184,7 +190,9 @@ class CNN_LSTM(nn.Module):
         """
         block = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),)
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+        )
 
         # Register hook to capture activations
         def hook(module, input, output):

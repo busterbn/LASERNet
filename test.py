@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from lasernet.dataset import SliceSequenceDataset
+from lasernet.micronet.dataset.fast_loading import FastSliceSequenceDataset
 from lasernet.model.CNN_LSTM import CNN_LSTM
 #from train import evaluate_test     # reuse your exact evaluation function
 from lasernet.utils import plot_losses       # optional
@@ -29,7 +29,7 @@ def set_seed(seed=42):
 set_seed(42)
 
 
-def evaluate_test(model, test_loader, device, run_dir):
+def evaluate_test(model, test_loader, device, run_dir, dataset_max_temp):
     print("\n" + "=" * 70)
     print("Evaluating on test set...")
     print("=" * 70)
@@ -78,7 +78,8 @@ def evaluate_test(model, test_loader, device, run_dir):
         target=test_target,
         prediction=test_pred,
         save_path=str(vis_path),
-        sample_idx=0
+        sample_idx=0,
+        vmax=dataset_max_temp
     )
 
     print(f"\nSaved visualization to: {vis_path}")
@@ -101,7 +102,7 @@ def evaluate_test(model, test_loader, device, run_dir):
 # ---------------------------------------------------------------------
 # 1. SELECT RUN DIRECTORY (only thing you need to change)
 # ---------------------------------------------------------------------
-RUN_DIR = Path("new_runs/contender1")   # <--- CHANGE 
+RUN_DIR = Path("runs/2025-12-02_08-40-39")   # <--- CHANGE 
 
 CKPT_PATH = RUN_DIR / "checkpoints" / "best_model.pt"
 CONFIG_PATH = RUN_DIR / "config.json"
@@ -144,15 +145,13 @@ print()
 
 
 # ---------------------------------------------------------------------
-# 4. CREATE TEST DATASET + LOADER (identical to train.py)
+# 4. CREATE TEST DATASET + LOADER (using fast loading)
 # ---------------------------------------------------------------------
-test_dataset = SliceSequenceDataset(
-    field="temperature",
+test_dataset = FastSliceSequenceDataset(
     plane="xz",
     split="test",
     sequence_length=seq_len,
     target_offset=1,
-    preload=True,
     train_ratio=train_ratio,
     val_ratio=val_ratio,
     test_ratio=test_ratio,
@@ -193,6 +192,7 @@ test_results = evaluate_test(
     test_loader=test_loader,
     device=device,
     run_dir=RUN_DIR,
+    dataset_max_temp=test_dataset.max_temp,
 )
 
 

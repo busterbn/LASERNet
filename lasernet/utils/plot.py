@@ -10,25 +10,34 @@ def plot_losses(history: Dict[str, list[float]], save_path: str) -> None:
     """Plot and save training and validation losses.
 
     Args:
-        history: Dictionary containing 'train_loss' and optionally 'val_loss' lists
+        history: Dictionary containing 'train_loss' and optionally 'val_loss', 'val_loss_smoothed' lists
         save_path: Path where the plot will be saved (e.g., 'figures/training_losses.png')
     """
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(12, 6))
     epochs = range(1, len(history["train_loss"]) + 1)
 
-    plt.plot(epochs, history["train_loss"], "b-o", label="Train Loss", linewidth=2, markersize=6)
+    plt.plot(epochs, history["train_loss"], "b-o", label="Train Loss", linewidth=2, markersize=4)
 
-    # Only plot validation loss if it exists
+    # Plot validation loss if it exists
     if "val_loss" in history and len(history["val_loss"]) > 0:
-        plt.plot(epochs, history["val_loss"], "r-s", label="Val Loss", linewidth=2, markersize=6)
-        title = "Training and Validation Loss"
+        # Plot raw validation loss (thin, transparent)
+        plt.plot(epochs, history["val_loss"], "r-", label="Val Loss (raw)",
+                linewidth=1, markersize=3, alpha=0.3)
+
+        # Plot smoothed validation loss if available (thick, opaque)
+        if "val_loss_smoothed" in history and len(history["val_loss_smoothed"]) > 0:
+            plt.plot(epochs, history["val_loss_smoothed"], "r-s",
+                    label="Val Loss (smoothed)", linewidth=2.5, markersize=5)
+            title = "Training and Validation Loss (with EMA smoothing)"
+        else:
+            title = "Training and Validation Loss"
     else:
         title = "Training Loss"
 
     plt.xlabel("Epoch", fontsize=12)
     plt.ylabel("Loss (MSE)", fontsize=12)
     plt.title(title, fontsize=14, fontweight="bold")
-    plt.legend(fontsize=11)
+    plt.legend(fontsize=11, loc="best")
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
 

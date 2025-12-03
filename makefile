@@ -37,7 +37,10 @@ submit_MICROnet_notebook:
 	bsub < batch/scripts/train_MICROnet_notebook.sh
 
 TempNet_notebook:
-	uv run jupyter nbconvert --to notebook --execute --inplace --debug TempNet.ipynb
+	uv run jupyter nbconvert --to notebook --execute --inplace --debug notebooks/temperature-prediction.ipynb
+
+submission_notebook:
+	uv run jupyter nbconvert --to notebook --execute --inplace --debug submission.ipynb
 
 # ==================== CLEANUP ====================
 

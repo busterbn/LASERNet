@@ -211,6 +211,7 @@ def visualize_prediction(
     prediction: torch.Tensor,
     save_path: Optional[str] = None,
     sample_idx: int = 0,
+    vmax: Optional[float] = None,
 ) -> None:
     """
     Visualize input context, ground truth target, and model prediction.
@@ -221,6 +222,7 @@ def visualize_prediction(
         prediction: [B, C, H, W] - predicted next frame
         save_path: Optional path to save figure
         sample_idx: Which sample from batch to visualize
+        vmax: Optional maximum temperature for color scale (defaults to max(tgt.max(), 2000.0))
     """
     batch_size, seq_len = context.shape[:2]
 
@@ -233,24 +235,30 @@ def visualize_prediction(
     tgt = target[sample_idx, 0].cpu().numpy()  # [H, W]
     pred = prediction[sample_idx, 0].cpu().numpy()  # [H, W]
 
+    # Use physical temperature range for consistent color scale
+    # Ground truth provides the actual data range
+    vmin = 300.0  # Room temperature baseline
+    if vmax is None:
+        vmax = max(tgt.max(), 2000.0)  # At least 2000K, or higher if data exceeds it
+
     # Plot context frames
     for t in range(seq_len):
         ax = axes[t]
-        im = ax.imshow(ctx[t, 0], cmap='hot', origin='lower')
+        im = ax.imshow(ctx[t, 0], cmap='hot', origin='lower', vmin=vmin, vmax=vmax)
         ax.set_title(f'Context {t+1}', fontweight='bold')
         ax.axis('off')
         plt.colorbar(im, ax=ax, fraction=0.046)
 
     # Plot target
     ax = axes[seq_len]
-    im = ax.imshow(tgt, cmap='hot', origin='lower')
+    im = ax.imshow(tgt, cmap='hot', origin='lower', vmin=vmin, vmax=vmax)
     ax.set_title('Target (Ground Truth)', fontweight='bold')
     ax.axis('off')
     plt.colorbar(im, ax=ax, fraction=0.046)
 
     # Plot prediction
     ax = axes[seq_len + 1]
-    im = ax.imshow(pred, cmap='hot', origin='lower')
+    im = ax.imshow(pred, cmap='hot', origin='lower', vmin=vmin, vmax=vmax)
     ax.set_title('Prediction', fontweight='bold')
     ax.axis('off')
     plt.colorbar(im, ax=ax, fraction=0.046)

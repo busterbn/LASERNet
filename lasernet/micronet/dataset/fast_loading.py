@@ -224,30 +224,40 @@ class FastMicrostructureSequenceDataset(Dataset):
             slice_idx: Index along the fixed axis
 
         Returns:
-            Slice tensor of shape [T, H, W] or [T, H, W, C]
+            Slice tensor of shape [T, H, W] or [T, H, W, C] where:
+            - xy: height=Y, width=X (transpose needed)
+            - yz: height=Y, width=Z
+            - xz: height=Z, width=X (transpose needed)
         """
         # Map plane type to slicing dimensions
         if self.plane == "xy":
-            # XY plane: slice along Z, result is [T, X, Y] or [T, X, Y, C]
+            # XY plane: slice along Z, transpose to get [T, Y, X] or [T, Y, X, C]
+            # (height=Y, width=X as per _get_plane_axes)
             if data.ndim == 4:
-                return data[:, :, :, slice_idx]  # [T, X, Y]
+                return data[:, :, :, slice_idx].transpose(1, 2)  # [T, Y, X]
             else:
-                return data[:, :, :, slice_idx, :]  # [T, X, Y, C]
+                return data[:, :, :, slice_idx, :].transpose(1, 2)  # [T, Y, X, C]
 
         elif self.plane == "yz":
             # YZ plane: slice along X, result is [T, Y, Z] or [T, Y, Z, C]
+            # (height=Y, width=Z - no transpose needed)
             if data.ndim == 4:
                 return data[:, slice_idx, :, :]  # [T, Y, Z]
             else:
                 return data[:, slice_idx, :, :, :]  # [T, Y, Z, C]
 
         elif self.plane == "xz":
-            # XZ plane: slice along Y, result is [T, Z, X] or [T, Z, X, C]
+            # XZ plane: slice along Y, transpose to get [T, Z, X] or [T, Z, X, C]
             # (height=Z, width=X as per _get_plane_axes)
             if data.ndim == 4:
                 return data[:, :, slice_idx, :].transpose(1, 2)  # [T, Z, X]
             else:
                 return data[:, :, slice_idx, :, :].transpose(1, 2)  # [T, Z, X, C]
+
+    @property
+    def max_temp(self) -> float:
+        """Return the maximum temperature in the dataset."""
+        return float(self.temp_data.max())
 
     def __len__(self) -> int:
         """Total samples = valid_sequences × num_slices"""
@@ -440,18 +450,32 @@ class FastSliceSequenceDataset(Dataset):
         data: torch.Tensor,
         slice_idx: int
     ) -> torch.Tensor:
-        """Extract a plane slice from 4D data [T, X, Y, Z]."""
+        """Extract a plane slice from 4D data [T, X, Y, Z].
+
+        Returns [T, H, W] where H, W match the plane orientation:
+        - xy: height=Y, width=X
+        - yz: height=Y, width=Z
+        - xz: height=Z, width=X (transpose needed)
+        """
         if self.plane == "xy":
-            return data[:, :, :, slice_idx]  # [T, X, Y]
+            # XY plane: slice along Z, transpose to get [T, Y, X] (height=Y, width=X)
+            return data[:, :, :, slice_idx].transpose(1, 2)  # [T, Y, X]
         elif self.plane == "yz":
+            # YZ plane: slice along X, result is [T, Y, Z] (height=Y, width=Z)
             return data[:, slice_idx, :, :]  # [T, Y, Z]
         elif self.plane == "xz":
-            return data[:, :, slice_idx, :]  # [T, X, Z]
+            # XZ plane: slice along Y, transpose to get [T, Z, X] (height=Z, width=X)
+            return data[:, :, slice_idx, :].transpose(1, 2)  # [T, Z, X]
     
+    @property
+    def max_temp(self) -> float:
+        """Return the maximum temperature in the dataset."""
+        return float(self.temp_data.max())
+
     def __len__(self) -> int:
         """Total samples = valid_sequences × num_slices"""
         return self.num_valid_sequences * len(self.slice_coords)
-    
+
     def __getitem__(self, idx: int) -> Dict[str, torch.Any]:
         """Get temperature sequence sample."""
         if idx < 0 or idx >= len(self):
