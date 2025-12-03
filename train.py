@@ -250,7 +250,11 @@ def evaluate_test(
 
     model.eval()
     test_loss = 0.0
+    test_mae = 0.0
     num_test_samples = 0
+
+    mae_fn = nn.L1Loss()
+
 
     with torch.no_grad():
         test_pbar = tqdm(test_loader, desc="Testing", leave=False)
@@ -263,15 +267,21 @@ def evaluate_test(
 
             mask_expanded = target_mask.unsqueeze(1)
             loss = criterion(pred[mask_expanded], target[mask_expanded])
+            mae = mae_fn(pred[mask_expanded], target[mask_expanded])
+
 
             batch_size = context.size(0)
             test_loss += loss.item() * batch_size
+            test_mae += mae.item() * batch_size
             num_test_samples += batch_size
 
             test_pbar.set_postfix({"loss": f"{loss.item():.4f}"})
-
+    
+    avg_test_mae = test_mae / max(1, num_test_samples)
     avg_test_loss = test_loss / max(1, num_test_samples)
     print(f"Test loss: {avg_test_loss:.4f}")
+    print(f"Test MAE:  {avg_test_mae:.4f}")
+
 
     # Generate test visualizations
     print("Generating test visualizations...")
@@ -291,6 +301,7 @@ def evaluate_test(
 
     return {
         "test_loss": avg_test_loss,
+        "test_mae": avg_test_mae,
         "num_samples": num_test_samples,
     }
 

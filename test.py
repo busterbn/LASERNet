@@ -102,7 +102,7 @@ def evaluate_test(model, test_loader, device, run_dir, dataset_max_temp):
 # ---------------------------------------------------------------------
 # 1. SELECT RUN DIRECTORY (only thing you need to change)
 # ---------------------------------------------------------------------
-RUN_DIR = Path("runs/2025-12-02_08-40-39")   # <--- CHANGE 
+RUN_DIR = Path("new_runs/L1")   # <--- CHANGE 
 
 CKPT_PATH = RUN_DIR / "checkpoints" / "best_model.pt"
 CONFIG_PATH = RUN_DIR / "config.json"
