@@ -78,8 +78,6 @@ def train_tempnet(
 
             # Only compute loss on valid pixels
             mask_expanded = target_mask.unsqueeze(1) # [B, 1, H, W]
-            if epoch == 0:
-                print("Train mask pixels:", mask_expanded.sum().item())
 
             # Main reconstruction loss
             reconstruction_loss = criterion(pred[mask_expanded], target[mask_expanded])
@@ -131,8 +129,6 @@ def train_tempnet(
 
                 pred = model(context)
                 mask_expanded = target_mask.unsqueeze(1)
-                if epoch == 0:
-                    print("Val mask pixels:", mask_expanded.sum().item())
 
 
                 loss = criterion(pred[mask_expanded], target[mask_expanded])
