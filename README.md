@@ -1,90 +1,72 @@
 # LASERNet
 
-Deep learning models for predicting microstructure evolution in laser welding simulations using CNN-LSTM and PredRNN architectures.
+Deep learning models for predicting temperature and microstructure evolution in laser welding simulations using CNN-LSTM and PredRNN architectures.
 
 ## Project Overview
 
-LASERNet trains and compares multiple deep learning models to predict microstructure evolution from temperature and past microstructure sequences. The models learn spatiotemporal patterns from 3D point cloud data extracted from laser welding simulations.
+LASERNet trains and compares multiple deep learning models for two prediction tasks:
+- **TempNet**: Predicts temperature evolution from past temperature sequences
+- **MicroNet**: Predicts microstructure evolution from temperature and past microstructure sequences
+
+Both models learn spatiotemporal patterns from 3D point cloud data extracted from laser welding simulations.
 
 ## Quick Start
 
 ### Setup
 
-```bash
-# Install dependencies and setup environment
-make init
-```
-
-This will:
-- Install `uv` package manager if not available
-- Sync all dependencies from `pyproject.toml`
-- Install Jupyter kernel for the virtual environment
-
-### Environment Configuration
-
-The project uses the `BLACKHOLE` environment variable to locate data files. This is configured using a `.env` file:
-
-1. **Copy the example environment file:**
+1. **Configure the data path:**
    ```bash
-   cp .env.example .env
+   echo 'BLACKHOLE=/path/to/directory/with/Data/' > .env
    ```
 
-2. **Edit `.env` and set your data path:**
+   Or if using our group's scratch drive, just run:
    ```bash
-   BLACKHOLE=/path/to/your/blackhole/directory
+   echo 'BLACKHOLE=/dtu/blackhole/06/168550' > .env
    ```
+   And make sure you have read/write access before proceeding to step 2.
 
-3. **Ensure your data directory structure:**
-   Your `BLACKHOLE` path should contain either:
-   - `Data/` with CSV files (for initial loading), or
-   - `processed/data/` with preprocessed `.pt` files (for fast loading)
+2. **Run the pipeline:**
 
-**Example paths:**
-- DTU HPC: `BLACKHOLE=/dtu/blackhole/06/168550`
-- Local: `BLACKHOLE=/Users/username/dtu/LASERNet/BLACKHOLE`
+   From the root of this repository, run:
+   ```bash
+   make
+   ```
+   This will create a virtual environment, install dependencies, and execute both TempNet and MicroNet notebooks.
 
-### Running the Models
+### Results
 
-**The main entry point is the [lasernet.ipynb](MICROnet.ipynb) notebook**, which is a concatination of the MICROnet.ipynb and the temperature-prediction.ipynb.
+Results are available in:
+- **Notebooks:** View plots and predictions directly in [TempNet.ipynb](notebooks/TempNet.ipynb) and [MicroNet.ipynb](notebooks/MicroNet.ipynb)
+- **Artifacts directories:** `TempNet_artifacts/` and `MicroNet_artifacts/`
 
-trains and evaluates multiple model configurations:
+### What Each Notebook Creates
+
+**TempNet** (`TempNet_artifacts/`):
+- `config.json` - Model configuration
+- `history.json` - Training history metrics
+- `test_results.json` - Test set performance
+- `best_summary.txt` - Best model summary
+- `checkpoints/` - Saved model weights
+- `visualizations/` - Prediction plots
+
+**MicroNet** (`MicroNet_artifacts/`):
+- `config.json` - Model configuration
+- `history.json` - Training history
+- `training_losses.png` - Loss curves
+- `pred_t23_s47.png` - Prediction visualization
+- `solidification_mask_t23_s47.png` - Solidification mask (CombLoss models only)
+- `checkpoints/` - Best and final model weights
+- `all_models_comparison.png` - Comparison across all models (root directory)
+
+### Make Commands
 
 ```bash
-# Execute the notebook locally
-make lasernet_notebook
-
-# Or submit to HPC job queue
-make submit_lasernet_notebook
-```
-
-### Viewing Results
-
-After running the notebook, results from the micronet models are available in two places:
-
-1. **In the notebook itself** - View training plots, predictions, and comparisons directly in [lasernet.ipynb](notebootks/lasernet.ipynb)
-2. **In the output directory** - All artifacts saved to `notebooks/MICROnet_output/`:
-   ```
-   MICROnet_output/
-   ├── <model_name>/
-   │   ├── config.json                    # Model configuration
-   │   ├── history.json                   # Training history
-   │   ├── training_losses.png            # Loss curves
-   │   ├── pred_t23_s47.png              # Prediction visualization
-   │   ├── solidification_mask_t23_s47.png  # Solidification mask (combined loss models)
-   │   └── checkpoints/
-   │       ├── best_model.pt             # Best validation checkpoint
-   │       └── final_model.pt            # Final model
-   └── all_models_comparison.png          # Comparison across all models
-   ```
-
-### Other Commands
-
-```bash
-# Show all available commands
-make help
-
-# Clean up logs and cache
-make clean
+make              # Run full pipeline (init + TempNet + MicroNet)
+make init         # Install dependencies only
+make TempNet      # Execute TempNet notebook
+make MicroNet     # Execute MicroNet notebook
+make clean        # Remove artifacts and cache files
+make help         # Show all commands
 ```
 
 ## Repository Structure
@@ -92,8 +74,11 @@ make clean
 ```
 LASERNet/
 ├── notebooks/
-│   ├── lasernet.ipynb           # Main notebook - train & evaluate models
-│   └── MICROnet_output/         # Output directory for all results
+│   ├── TempNet.ipynb            # Temperature prediction models
+│   ├── MicroNet.ipynb           # Microstructure prediction models
+│   └── data-loading-demo.ipynb  # Data loading examples
+├── TempNet_artifacts/           # TempNet output artifacts
+├── MicroNet_artifacts/          # MicroNet output artifacts
 ├── lasernet/
 │   ├── model/                   # Neural network architectures
 │   │   ├── MicrostructureCNN_LSTM.py   # CNN-LSTM model
@@ -106,9 +91,9 @@ LASERNet/
 │       ├── plot.py             # Loss curves
 │       └── visualize.py        # Prediction visualizations
 ├── microstructure_training.py   # Training and prediction utilities
-├── batch/scripts/               # HPC job submission scripts
-├── makefile                     # Build commands
-└── pyproject.toml              # Dependencies
+├── Makefile                     # Build commands
+├── pyproject.toml              # Dependencies
+└── .env.example                # Environment configuration template
 ```
 
 ## Data
