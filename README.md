@@ -110,3 +110,7 @@ Data is stored in `$BLACKHOLE/Data/` and automatically loaded by the notebook:
   - Significantly faster loading times
 
 The notebook automatically detects and uses preprocessed data if available, otherwise falls back to loading from CSV files.
+
+## Project Documentation
+
+For detailed information about the project, methodology, and results, see the [LaserNet Report (PDF)](LaserNet%20Report.pdf).
